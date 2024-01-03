@@ -479,22 +479,26 @@ def launch_pipeline_inpaint(uuid,
                                     use_face_swap, use_post_process,
                                     use_stylization)
 
-    with ProcessPoolExecutor(max_workers=5) as executor:
-        future = executor.submit(gen_portrait, instance_data_dir_A, instance_data_dir_B, base_model,\
+    import pydevd_pycharm
+    pydevd_pycharm.settrace('49.7.62.197', port=10090, stdoutToServer=True, stderrToServer=True)
+    outputs = gen_portrait(instance_data_dir_A, instance_data_dir_B, base_model,\
                                  lora_model_path_A, lora_model_path_B, sub_path=sub_path, revision=revision)
-
-        while not future.done():
-            is_processing = future.running()
-            if not is_processing:
-                cur_done_count = inference_done_count
-                to_wait = before_queue_size - (cur_done_count - before_done_count)
-                yield ["排队等待资源中，前方还有{}个生成任务, 预计需要等待{}分钟...".format(to_wait, to_wait * 2.5),
-                       None]
-            else:
-                yield ["生成中, 请耐心等待(Generating)...", None]
-            time.sleep(1)
-
-    outputs = future.result()
+    # with ProcessPoolExecutor(max_workers=5) as executor:
+    #     future = executor.submit(gen_portrait, instance_data_dir_A, instance_data_dir_B, base_model,\
+    #                              lora_model_path_A, lora_model_path_B, sub_path=sub_path, revision=revision)
+    #
+    #     while not future.done():
+    #         is_processing = future.running()
+    #         if not is_processing:
+    #             cur_done_count = inference_done_count
+    #             to_wait = before_queue_size - (cur_done_count - before_done_count)
+    #             yield ["排队等待资源中，前方还有{}个生成任务, 预计需要等待{}分钟...".format(to_wait, to_wait * 2.5),
+    #                    None]
+    #         else:
+    #             yield ["生成中, 请耐心等待(Generating)...", None]
+    #         time.sleep(1)
+    #
+    # outputs = future.result()
     outputs_RGB = []
     for out_tmp in outputs:
         outputs_RGB.append(cv2.cvtColor(out_tmp, cv2.COLOR_BGR2RGB))
