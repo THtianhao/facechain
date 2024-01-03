@@ -479,8 +479,8 @@ def launch_pipeline_inpaint(uuid,
                                     use_face_swap, use_post_process,
                                     use_stylization)
 
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('49.7.62.197', port=10090, stdoutToServer=True, stderrToServer=True)
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('49.7.62.197', port=10090, stdoutToServer=True, stderrToServer=True)
     outputs = gen_portrait(instance_data_dir_A, instance_data_dir_B, base_model,\
                                  lora_model_path_A, lora_model_path_B, sub_path=sub_path, revision=revision)
     # with ProcessPoolExecutor(max_workers=5) as executor:
