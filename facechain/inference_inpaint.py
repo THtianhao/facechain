@@ -21,6 +21,7 @@ from transformers import pipeline as tpipeline
 
 from facechain.data_process.preprocessing import Blipv2
 from facechain.merge_lora import merge_lora
+from ..toto_debug.debug import *
 
 
 def _data_process_fn_process(input_img_dir):
@@ -688,13 +689,10 @@ class GenPortrait_inpaint:
         self.strength = strength
         self.num_faces = num_faces
 
-    def log(*args):
-        print("toto ======", *args)
-
     def __call__(self, input_img_dir1=None, input_img_dir2=None, base_model_path=None,
                  lora_model_path1=None, lora_model_path2=None, sub_path=None, revision=None):
-        self.log(f"input_img_dir1 = {input_img_dir1} input_img_dir2 = {input_img_dir2} base_model_path = {base_model_path}"
-                 + f"lora_model_path1 = {lora_model_path1} lora_model_path2 = {lora_model_path2} sub_path = {sub_path}")
+        toto_debug(f"input_img_dir1 = {input_img_dir1} input_img_dir2 = {input_img_dir2} base_model_path = {base_model_path}"
+                   + f"lora_model_path1 = {lora_model_path1} lora_model_path2 = {lora_model_path2} sub_path = {sub_path}")
         base_model_path = snapshot_download(base_model_path, revision=revision)
         if sub_path is not None and len(sub_path) > 0:
             base_model_path = os.path.join(base_model_path, sub_path)
@@ -714,13 +712,17 @@ class GenPortrait_inpaint:
             face_box = bboxes[idxs[0]]
             inpaint_img_large = cv2.imread(self.inpaint_img)
             mask_large = np.ones_like(inpaint_img_large)
+            save_image_np(mask_large, "mask_large")
             mask_large1 = np.zeros_like(inpaint_img_large)
+            save_image_np(mask_large1, "mask_large1")
             h, w, _ = inpaint_img_large.shape
             for i in range(len(bboxes)):
                 if i != idxs[0]:
                     bbox = bboxes[i]
                     inpaint_img_large[bbox[1]:bbox[3], bbox[0]:bbox[2]] = 0
+                    save_image_np(inpaint_img_large, "bbox_inpaint_img")
                     mask_large[bbox[1]:bbox[3], bbox[0]:bbox[2]] = 0
+                    save_image_np(mask_large, "bbox_mask_large")
 
             face_ratio = 0.45
             cropl = int(max(face_box[3] - face_box[1], face_box[2] - face_box[0]) / face_ratio / 2)
@@ -734,8 +736,11 @@ class GenPortrait_inpaint:
                                  'constant')
             inpaint_img = cv2.resize(inpaint_img, (512, 512))
             inpaint_img = Image.fromarray(inpaint_img[:, :, ::-1])
+            save_image_np(inpaint_img, "inapint_after_clip_inpaint_large")
             mask_large1[cy - cropup:cy + cropbo, cx - crople:cx + cropri] = 1
+            save_image_np(mask_large1, "mask_large1_clip")
             mask_large = mask_large * mask_large1
+            save_image_np(mask_large, "mask_large_*_mask_large1")
 
             gen_results = main_model_inference(inpaint_img, self.strength, 512,
                                                self.pos_prompt, self.neg_prompt,
@@ -744,21 +749,37 @@ class GenPortrait_inpaint:
                                                lora_model_path=lora_model_path1, base_model_path=base_model_path)
 
             # select_high_quality_face PIL
+            toto_debug(f"select high quality face from{input_img_dir1}")
             selected_face = select_high_quality_face(input_img_dir1)
+            save_image(selected_face, "selected_face")
+
             # face_swap cv2
             swap_results = face_swap_fn(self.use_face_swap, gen_results, selected_face)
+
             # stylization
             final_gen_results = swap_results
-
             print(len(final_gen_results))
 
             final_gen_results_new = []
+
+            toto_debug(f"final result len = {len(final_gen_results)}")
+            save_image(final_gen_results[0], "swap_results")
+
             inpaint_img_large = cv2.imread(self.inpaint_img)
             ksize = int(10 * cropl / 256)
+
+            toto_debug(f"cropl = {cropl} , ksize = {ksize}")
+
             for i in range(len(final_gen_results)):
                 print('Start cropping.')
                 rst_gen = cv2.resize(final_gen_results[i], (cropl * 2, cropl * 2))
+
+                toto_debug(f'resize result to = {cropl * 2} , {cropl * 2}')
+                save_image(rst_gen, "final result resize")
+
                 rst_crop = rst_gen[cropl - cropup:cropl + cropbo, cropl - crople:cropl + cropri]
+                save_image(rst_crop, "final result crip")
+
                 print(rst_crop.shape)
                 inpaint_img_rst = np.zeros_like(inpaint_img_large)
                 print('Start pasting.')
@@ -772,7 +793,7 @@ class GenPortrait_inpaint:
                 mask_large1[face_box[1]:face_box[3], face_box[0]:face_box[2]] = 1
                 mask_large = mask_large * mask_large1
                 final_inpaint_rst = (inpaint_img_rst.astype(np.float32) * mask_large.astype(np.float32) + inpaint_img_large.astype(np.float32) * (
-                            1.0 - mask_large.astype(np.float32))).astype(np.uint8)
+                        1.0 - mask_large.astype(np.float32))).astype(np.uint8)
                 print('Finish masking.')
                 final_gen_results_new.append(final_inpaint_rst)
                 print('Finish generating.')
@@ -850,11 +871,12 @@ class GenPortrait_inpaint:
                 mask_large1[face_box[1]:face_box[3], face_box[0]:face_box[2]] = 1
                 mask_large = mask_large * mask_large1
                 final_inpaint_rst = (inpaint_img_rst.astype(np.float32) * mask_large.astype(np.float32) + final_gen_results_new[i].astype(np.float32) * (
-                            1.0 - mask_large.astype(np.float32))).astype(np.uint8)
+                        1.0 - mask_large.astype(np.float32))).astype(np.uint8)
                 print('Finish masking.')
                 final_gen_results_final.append(final_inpaint_rst)
                 print('Finish generating.')
         else:
+            toto_debug("don't have 2 face")
             final_gen_results_final = final_gen_results_new
 
         outputs = final_gen_results_final
