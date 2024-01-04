@@ -21,7 +21,7 @@ from transformers import pipeline as tpipeline
 
 from facechain.data_process.preprocessing import Blipv2
 from facechain.merge_lora import merge_lora
-from ..toto_debug.debug import *
+from toto_debug.debug import *
 
 
 def _data_process_fn_process(input_img_dir):
@@ -736,7 +736,7 @@ class GenPortrait_inpaint:
                                  'constant')
             inpaint_img = cv2.resize(inpaint_img, (512, 512))
             inpaint_img = Image.fromarray(inpaint_img[:, :, ::-1])
-            save_image_np(inpaint_img, "inapint_after_clip_inpaint_large")
+            save_image(inpaint_img, "inapint_after_clip_inpaint_large")
             mask_large1[cy - cropup:cy + cropbo, cx - crople:cx + cropri] = 1
             save_image_np(mask_large1, "mask_large1_clip")
             mask_large = mask_large * mask_large1
@@ -763,7 +763,7 @@ class GenPortrait_inpaint:
             final_gen_results_new = []
 
             toto_debug(f"final result len = {len(final_gen_results)}")
-            save_image(final_gen_results[0], "swap_results")
+            save_image_cv(final_gen_results[0], "swap_results")
 
             inpaint_img_large = cv2.imread(self.inpaint_img)
             ksize = int(10 * cropl / 256)
@@ -775,25 +775,39 @@ class GenPortrait_inpaint:
                 rst_gen = cv2.resize(final_gen_results[i], (cropl * 2, cropl * 2))
 
                 toto_debug(f'resize result to = {cropl * 2} , {cropl * 2}')
-                save_image(rst_gen, "final result resize")
+                save_image_cv(rst_gen, "final_result_resize")
 
                 rst_crop = rst_gen[cropl - cropup:cropl + cropbo, cropl - crople:cropl + cropri]
-                save_image(rst_crop, "final result crip")
+                save_image_cv(rst_crop, "final_result_crip")
 
                 print(rst_crop.shape)
                 inpaint_img_rst = np.zeros_like(inpaint_img_large)
+                save_image_np(inpaint_img_rst, "zero_like_inpaint_img_large")
+
                 print('Start pasting.')
                 inpaint_img_rst[cy - cropup:cy + cropbo, cx - crople:cx + cropri] = rst_crop
+                save_image_cv(inpaint_img_rst, "inpaint_img_rst_replace_rst_crop")
+
                 print('Fininsh pasting.')
                 print(inpaint_img_rst.shape, mask_large.shape, inpaint_img_large.shape)
                 mask_large = mask_large.astype(np.float32)
+                save_image_np(mask_large, "mask_large")
+
                 kernel = np.ones((ksize * 2, ksize * 2))
                 mask_large1 = cv2.erode(mask_large, kernel, iterations=1)
+                save_image_np(mask_large1, "mask_large1_erode_mask_large")
+
                 mask_large1 = cv2.GaussianBlur(mask_large1, (int(ksize * 1.8) * 2 + 1, int(ksize * 1.8) * 2 + 1), 0)
+                save_image_np(mask_large1, "mask_large1_gaussian")
+
                 mask_large1[face_box[1]:face_box[3], face_box[0]:face_box[2]] = 1
+                save_image_np(mask_large1, "mask_large1_gaussian")
+
                 mask_large = mask_large * mask_large1
+                save_image_np(mask_large, "mask_large_*_mask_large1")
                 final_inpaint_rst = (inpaint_img_rst.astype(np.float32) * mask_large.astype(np.float32) + inpaint_img_large.astype(np.float32) * (
                         1.0 - mask_large.astype(np.float32))).astype(np.uint8)
+                save_image_cv(final_inpaint_rst, 'final_inpaint_merge_2_mask')
                 print('Finish masking.')
                 final_gen_results_new.append(final_inpaint_rst)
                 print('Finish generating.')
@@ -885,6 +899,7 @@ class GenPortrait_inpaint:
             outputs_RGB.append(cv2.cvtColor(out_tmp, cv2.COLOR_BGR2RGB))
         image_path = './lora_result.png'
         if len(outputs) > 0:
+            toto_debug("concatenate_images")
             result = concatenate_images(outputs)
             cv2.imwrite(image_path, result)
 
