@@ -23,10 +23,8 @@ from facechain.data_process.preprocessing import Blipv2
 from facechain.merge_lora import merge_lora
 from toto_debug.debug import *
 
-
 def _data_process_fn_process(input_img_dir):
     Blipv2()(input_img_dir)
-
 
 def concatenate_images(images):
     heights = [img.shape[0] for img in images]
@@ -39,7 +37,6 @@ def concatenate_images(images):
         x_offset += img.shape[1]
     return concatenated_image
 
-
 def data_process_fn(input_img_dir, use_data_process):
     ## TODO add face quality filter
     if use_data_process:
@@ -50,7 +47,6 @@ def data_process_fn(input_img_dir, use_data_process):
         _process.join()
 
     return os.path.join(str(input_img_dir) + '_labeled', "metadata.jsonl")
-
 
 def call_face_crop(det_pipeline, image, crop_ratio):
     det_result = det_pipeline(image)
@@ -80,7 +76,6 @@ def call_face_crop(det_pipeline, image, crop_ratio):
     bbox = np.array(bbox, np.int32)
     return bbox, points_array
 
-
 def crop_and_paste(Source_image, Source_image_mask, Target_image, Source_Five_Point, Target_Five_Point, Source_box, use_warp=True):
     if use_warp:
         Source_Five_Point = np.reshape(Source_Five_Point, [5, 2]) - np.array(Source_box[:2])
@@ -103,7 +98,6 @@ def crop_and_paste(Source_image, Source_image_mask, Target_image, Source_Five_Po
         mask = np.float32(np.array(Source_image_mask) == 0)
         output = mask * np.float32(Target_image) + (1 - mask) * np.float32(Source_image)
     return output, mask
-
 
 def segment(segmentation_pipeline, img, ksize=0, eyeh=0, ksize1=0, include_neck=False, warp_mask=None, return_human=False):
     if True:
@@ -168,7 +162,6 @@ def segment(segmentation_pipeline, img, ksize=0, eyeh=0, ksize1=0, include_neck=
     else:
         return soft_mask
 
-
 def crop_bottom(pil_file, width):
     if width == 512:
         height = 768
@@ -184,7 +177,6 @@ def crop_bottom(pil_file, width):
     output_file = Image.fromarray(array_file)
     return output_file
 
-
 def img2img_multicontrol(img, control_image, controlnet_conditioning_scale, pipe, mask, pos_prompt, neg_prompt,
                          strength, num=1, use_ori=False):
     image_mask = Image.fromarray(np.uint8(mask * 255))
@@ -197,7 +189,6 @@ def img2img_multicontrol(img, control_image, controlnet_conditioning_scale, pipe
         if use_ori:
             image_human[i] = Image.fromarray((np.array(image_human[i]) * mask[:, :, None] + np.array(img) * (1 - mask[:, :, None])).astype(np.uint8))
     return image_human
-
 
 def get_mask(result):
     masks = result['masks']
@@ -223,11 +214,11 @@ def get_mask(result):
     mask_rst = np.concatenate([mask_rst, mask_rst, mask_rst], axis=2)
     return mask_rst
 
-
 def main_diffusion_inference_inpaint(inpaint_image, strength, output_img_size, pos_prompt, neg_prompt,
                                      input_img_dir, base_model_path, style_model_path, lora_model_path,
                                      multiplier_style=0.05,
                                      multiplier_human=1.0):
+    toto_debug(f'base_model_path = {base_model_path} style_model_path = {style_model_path} lora_model_path = {lora_model_path}' )
     if style_model_path is None:
         model_dir = snapshot_download('Cherrytest/zjz_mj_jiyi_small_addtxt_fromleo', revision='v1.0.0')
         style_model_path = os.path.join(model_dir, 'zjz_mj_jiyi_small_addtxt_fromleo.safetensors')
@@ -294,12 +285,15 @@ def main_diffusion_inference_inpaint(inpaint_image, strength, output_img_size, p
     else:
         inpaint_im = inpaint_image
     inpaint_im = crop_bottom(inpaint_im, output_img_size)
+    toto_debug('main inference')
+    save_image(inpaint_im, 'inpaint_img_crop_bottom')
     # return [inpaint_im, inpaint_im, inpaint_im]
     openpose = OpenposeDetector.from_pretrained(os.path.join(model_dir, "model_controlnet/ControlNet"))
     controlnet = ControlNetModel.from_pretrained(os.path.join(model_dir, "model_controlnet/control_v11p_sd15_openpose"), torch_dtype=dtype)
     openpose_image = openpose(np.array(inpaint_im, np.uint8), include_hand=True, include_face=False)
+    save_image(openpose_image, 'openpose_image')
     w, h = inpaint_im.size
-
+    toto_debug(f'crop bottm inpaint img w = {w}, h = {h}')
     pipe = StableDiffusionControlNetPipeline.from_pretrained(base_model_path, controlnet=controlnet, torch_dtype=dtype, safety_checker=None)
     lora_style_path = style_model_path
     lora_human_path = lora_model_path
@@ -307,13 +301,21 @@ def main_diffusion_inference_inpaint(inpaint_image, strength, output_img_size, p
     pipe = merge_lora(pipe, lora_human_path, multiplier_human, from_safetensor=False, device='cuda')
     pipe = pipe.to("cuda")
     image_faces = []
+    toto_debug(f'all prompt = ', trigger_style + add_prompt_style + pos_prompt)
+    toto_debug(f'pos_prompt prompt = ', pos_prompt)
+    toto_debug(f'neg_prompt = ', neg_prompt)
+
     for i in range(1):
         image_face = pipe(prompt=trigger_style + add_prompt_style + pos_prompt, image=openpose_image, height=h, width=w,
                           guidance_scale=7, negative_prompt=neg_prompt,
                           num_inference_steps=40, num_images_per_prompt=1).images[0]
         image_faces.append(image_face)
+    save_image(image_face, 'first_inference_image')
+
     selected_face = select_high_quality_face(input_img_dir)
+    save_image(selected_face, 'first_inference_then_get_select_face')
     swap_results = face_swap_fn(True, image_faces, selected_face)
+    save_image_cv(swap_results[0], 'first_inference_swap_face')
 
     controlnet = [
         ControlNetModel.from_pretrained(os.path.join(model_dir, "model_controlnet/control_v11p_sd15_openpose"), torch_dtype=dtype),
@@ -330,44 +332,58 @@ def main_diffusion_inference_inpaint(inpaint_image, strength, output_img_size, p
     images_auto = []
     inpaint_bbox, inpaint_keypoints = call_face_crop(det_pipeline, inpaint_im, 1.1)
     eye_height = int((inpaint_keypoints[0, 1] + inpaint_keypoints[1, 1]) / 2)
+    toto_debug('eye height = ', eye_height)
     canny_image = cv2.Canny(np.array(inpaint_im, np.uint8), 100, 200)[:, :, None]
+    save_image_cv(canny_image, 'canny_img_with_seg_eye')
     mask = segment(segmentation_pipeline, inpaint_im, ksize=0.05, eyeh=eye_height)
+    save_image_np(mask, 'seg_eye_mask')
     canny_image = (canny_image * (1.0 - mask[:, :, None])).astype(np.uint8)
     canny_image = Image.fromarray(np.concatenate([canny_image, canny_image, canny_image], axis=2))
+    save_image(canny_image, 'canny_img_with_seg_eye')
     # canny_image.save('canny.png')
     for i in range(1):
         image_face = swap_results[i]
         image_face = Image.fromarray(image_face[:, :, ::-1])
-
+        save_image(image_face, 'image_face')
         face_bbox, face_keypoints = call_face_crop(det_pipeline, image_face, 1.5)
         face_mask = segment(segmentation_pipeline, image_face)
         face_mask = np.expand_dims((face_mask * 255).astype(np.uint8), axis=2)
         face_mask = np.concatenate([face_mask, face_mask, face_mask], axis=2)
         face_mask = Image.fromarray(face_mask)
+        save_image(face_mask, 'face_mask')
         replaced_input_image, warp_mask = crop_and_paste(image_face, face_mask, inpaint_im, face_keypoints,
                                                          inpaint_keypoints, face_bbox)
+        save_image_np(replaced_input_image, 'replace_input_image')
+        save_image_np(warp_mask, 'warp_mask')
         warp_mask = 1.0 - warp_mask
         # cv2.imwrite('tmp_{}.png'.format(i), replaced_input_image[:, :, ::-1])
-
+        save_image_np(warp_mask, 'warp_mask_revert')
         openpose_image = openpose(np.array(replaced_input_image * warp_mask, np.uint8), include_hand=True,
                                   include_body=False, include_face=True)
         # openpose_image.save('openpose_{}.png'.format(i))
         read_control = [openpose_image, canny_image]
         inpaint_mask, human_mask = segment(segmentation_pipeline, inpaint_im, ksize=0.1, ksize1=0.06, eyeh=eye_height, include_neck=False,
                                            warp_mask=warp_mask, return_human=True)
+        save_image_np(inpaint_mask,'inpaint_mask')
+        save_image_np(human_mask,'human_mask')
         inpaint_with_mask = ((1.0 - inpaint_mask[:, :, None]) * np.array(inpaint_im))[:, :, ::-1]
         # cv2.imwrite('inpaint_with_mask_{}.png'.format(i), inpaint_with_mask)
         print('Finishing segmenting images.')
         images_human.extend(img2img_multicontrol(inpaint_im, read_control, [1.0, 0.2], pipe, inpaint_mask,
                                                  trigger_style + add_prompt_style + pos_prompt, neg_prompt,
                                                  strength=strength))
+        save_image(images_human[0], 'img2img_human')
         images_auto.extend(img2img_multicontrol(inpaint_im, read_control, [1.0, 0.2], pipe, np.zeros_like(inpaint_mask),
                                                 trigger_style + add_prompt_style + pos_prompt, neg_prompt,
                                                 strength=0.025))
+        save_image(images_auto[0], 'img2img_auto')
 
         edge_add = np.array(inpaint_im).astype(np.int16) - np.array(images_auto[i]).astype(np.int16)
+        save_image_np(edge_add,"edge_add")
         edge_add = edge_add * (1 - human_mask[:, :, None])
+        save_image_np(edge_add,"edge_add1")
         images_human[i] = Image.fromarray((np.clip(np.array(images_human[i]).astype(np.int16) + edge_add.astype(np.int16), 0, 255)).astype(np.uint8))
+        save_image(images_human[0], 'image_human_final')
 
     images_rst = []
 
@@ -378,24 +394,29 @@ def main_diffusion_inference_inpaint(inpaint_image, strength, output_img_size, p
         openpose_image = openpose(np.array(im, np.uint8), include_hand=True, include_face=True)
         read_control = [openpose_image, canny_image]
         inpaint_mask, human_mask = segment(segmentation_pipeline, images_human[i], ksize=0.02, return_human=True)
+        save_image_np(inpaint_mask, 'inpaint_mask')
+        save_image_np(human_mask, 'human_mask')
         print('Finishing segmenting images.')
         image_rst = img2img_multicontrol(im, read_control, [0.8, 0.8], pipe, inpaint_mask,
                                          trigger_style + add_prompt_style + pos_prompt, neg_prompt, strength=0.1,
                                          num=1)[0]
+        save_image(image_rst, 'image_rst')
         image_auto = img2img_multicontrol(im, read_control, [0.8, 0.8], pipe, np.zeros_like(inpaint_mask),
                                           trigger_style + add_prompt_style + pos_prompt, neg_prompt, strength=0.025,
                                           num=1)[0]
+        save_image(image_auto, 'image_auto')
         edge_add = np.array(im).astype(np.int16) - np.array(image_auto).astype(np.int16)
+        save_image_np(edge_add, 'edge_add')
         edge_add = edge_add * (1 - human_mask[:, :, None])
+        save_image_np(edge_add, 'edge_add1')
         image_rst = Image.fromarray((np.clip(np.array(image_rst).astype(np.int16) + edge_add.astype(np.int16), 0, 255)).astype(np.uint8))
-
+        save_image(image_rst, 'image_rst')
         images_rst.append(image_rst)
 
     for i in range(1):
         images_rst[i].save('inference_{}.png'.format(i))
 
     return images_rst
-
 
 def main_diffusion_inference_inpaint_multi(inpaint_images, strength, output_img_size, pos_prompt, neg_prompt,
                                            input_img_dir, base_model_path, style_model_path, lora_model_path,
@@ -474,10 +495,14 @@ def main_diffusion_inference_inpaint_multi(inpaint_images, strength, output_img_
 
     for i in range(1):
         inpaint_im = inpaint_images[i]
+        toto_debug('output_img_size =', output_img_size)
+
         inpaint_im = crop_bottom(inpaint_im, output_img_size)
 
         openpose_image = openpose(np.array(inpaint_im, np.uint8), include_hand=True, include_face=False)
         w, h = inpaint_im.size
+        toto_debug('prompt =', trigger_style + add_prompt_style + pos_prompt)
+        toto_debug('neg_prompt = ', neg_prompt)
         image_face = pipe(prompt=trigger_style + add_prompt_style + pos_prompt, image=openpose_image, height=h, width=w,
                           guidance_scale=7, negative_prompt=neg_prompt,
                           num_inference_steps=40, num_images_per_prompt=1).images[0]
@@ -567,14 +592,12 @@ def main_diffusion_inference_inpaint_multi(inpaint_images, strength, output_img_
 
     return images_rst
 
-
 def stylization_fn(use_stylization, rank_results):
     if use_stylization:
         ## TODO
         pass
     else:
         return rank_results
-
 
 def main_model_inference(inpaint_image, strength, output_img_size,
                          pos_prompt, neg_prompt, style_model_path, multiplier_style, multiplier_human, use_main_model,
@@ -586,7 +609,6 @@ def main_model_inference(inpaint_image, strength, output_img_size,
                                                 input_img_dir, base_model_path, style_model_path, lora_model_path,
                                                 **multiplier_style_kwargs, **multiplier_human_kwargs)
 
-
 def main_model_inference_multi(inpaint_image, strength, output_img_size,
                                pos_prompt, neg_prompt, style_model_path, multiplier_style, multiplier_human, use_main_model,
                                input_img_dir=None, base_model_path=None, lora_model_path=None):
@@ -596,7 +618,6 @@ def main_model_inference_multi(inpaint_image, strength, output_img_size,
         return main_diffusion_inference_inpaint_multi(inpaint_image, strength, output_img_size, pos_prompt, neg_prompt,
                                                       input_img_dir, base_model_path, style_model_path, lora_model_path,
                                                       **multiplier_style_kwargs, **multiplier_human_kwargs)
-
 
 def select_high_quality_face(input_img_dir):
     input_img_dir = str(input_img_dir) + '_labeled'
@@ -624,7 +645,6 @@ def select_high_quality_face(input_img_dir):
 
     return Image.open(abs_img_path_list[sort_idx[0]])
 
-
 def face_swap_fn(use_face_swap, gen_results, template_face):
     if use_face_swap:
         ## TODO
@@ -643,7 +663,6 @@ def face_swap_fn(use_face_swap, gen_results, template_face):
         for img in gen_results:
             ret_results.append(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR))
         return ret_results
-
 
 def post_process_fn(use_post_process, swap_results_ori, selected_face, num_gen_images):
     if use_post_process:
@@ -669,7 +688,6 @@ def post_process_fn(use_post_process, swap_results_ori, selected_face, num_gen_i
         return np.array(swap_results)[sort_idx[:min(int(num_gen_images), len(swap_results))]]
     else:
         return np.array(swap_results_ori)
-
 
 class GenPortrait_inpaint:
     def __init__(self, inpaint_img, strength, num_faces,
@@ -905,7 +923,6 @@ class GenPortrait_inpaint:
 
         return final_gen_results_final
 
-
 def compress_image(input_path, target_size):
     output_path = change_extension_to_jpg(input_path)
 
@@ -924,7 +941,6 @@ def compress_image(input_path, target_size):
     with open(output_path, 'wb') as f:
         f.write(compressed_image)
     return output_path
-
 
 def change_extension_to_jpg(image_path):
     base_name = os.path.basename(image_path)
